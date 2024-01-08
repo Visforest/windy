@@ -12,6 +12,11 @@
 
 #  使用方法
 
+安装:
+```
+go get github.com/visforest/windy
+```
+
 Producer:
 ```go
 func main() {

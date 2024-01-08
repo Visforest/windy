@@ -13,6 +13,11 @@ Other features are coming soon.
 
 # Usage
 
+Install:
+```
+go get github.com/visforest/windy
+```
+
 Producer:
 ```go
 func main() {
