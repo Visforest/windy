@@ -1,7 +1,7 @@
 [English](README.md) | 中文
 
 # windy
-一个消息/任务队列异步处理库，目前仅支持 Kafka。
+一个消息/任务队列异步处理库，目前仅支持 Kafka 作为中间件。
 
 支持：
 1. 消息发送前、发送成功、发送失败时回调自定义的函数。
@@ -23,12 +23,13 @@ func main() {
 	cfg := kq.Conf{
 		Brokers: []string{"master:9092", "node1:9092", "node2:9092"},
 		Topic:   "notify.email",
+        Group:   "g.notify.email",
 	}
 	// pass metadata
 	ctx := context.WithValue(context.Background(), "channel", "pc")
 	// initialize a producer
 	// optionally specify your listener and id creator
-	producer := kq.NewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))
+	producer := kq.MustNewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))
     
 	// prepare and send msgs
 	receivers := []string{"wind@example.com", "cloud@example.com", "rain@example.com", "snow@example.com", "storm@example.com"}

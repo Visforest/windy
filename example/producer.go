@@ -46,6 +46,7 @@ func main() {
 	cfg := kq.Conf{
 		Brokers: []string{"master:9092", "node1:9092", "node2:9092"},
 		Topic:   "notify.email",
+		Group:   "g.notify.email",
 	}
 	ctx := context.WithValue(context.Background(), "channel", "pc")
 	producer := kq.MustNewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))

@@ -2,7 +2,7 @@
 English | [中文](README_ZH.md)
 
 # windy
-A Go library for queueing message/task and processing them asynchronously. It's based on Kafka for now.
+A Go library for queueing message/task and processing them asynchronously. Only Kafka is used as queue for now.
 
 Supports:
 1. call customized hook function before,after sending msg and on failing to send msg. 
@@ -24,12 +24,13 @@ func main() {
 	cfg := kq.Conf{
 		Brokers: []string{"master:9092", "node1:9092", "node2:9092"},
 		Topic:   "notify.email",
+        Group:   "g.notify.email",
 	}
 	// pass metadata
 	ctx := context.WithValue(context.Background(), "channel", "pc")
 	// initialize a producer
 	// optionally specify your listener and id creator
-	producer := kq.NewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))
+	producer := kq.MustNewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))
     
 	// prepare and send msgs
 	receivers := []string{"wind@example.com", "cloud@example.com", "rain@example.com", "snow@example.com", "storm@example.com"}
