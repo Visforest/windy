@@ -111,6 +111,7 @@ func NewConsumer(cfg *Conf, handler ConsumeHandler, opts ...ConsumerOption) (*Co
 	}
 	reader := kafka.NewReader(readerConfig)
 	consumer := &Consumer{
+		ctx:        context.Background(),
 		conn:       conn,
 		reader:     reader,
 		topic:      cfg.Topic,

@@ -48,7 +48,7 @@ func main() {
 		Topic:   "notify.email",
 	}
 	ctx := context.WithValue(context.Background(), "channel", "pc")
-	producer := kq.NewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))
+	producer := kq.MustNewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))
 
 	receivers := []string{"wind@example.com", "cloud@example.com", "rain@example.com", "snow@example.com", "storm@example.com"}
 	for _, r := range receivers {

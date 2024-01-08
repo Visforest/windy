@@ -10,15 +10,41 @@ import (
 )
 
 type Conf struct {
-	Brokers    []string `json:"brokers" yaml:"brokers"`       // kafka broker addresses
-	Group      string   `json:"group" yaml:"group"`           // consumer group,only for consumer
-	Topic      string   `json:"topic" yaml:"topic"`           // topic
-	Processors int      `json:"processors" yaml:"processors"` // consumer count,default is the partition count of topic
-	MinBytes   int      `json:"min_bytes" yaml:"min_bytes"`   // default 10K
-	MaxBytes   int      `json:"max_bytes" yaml:"max_bytes"`   // default 10M
-	CaFile     string   `json:"ca_file" yaml:"ca_file"`       // certificate file path for connecting to kafka
-	Username   string   `json:"username" yaml:"username"`     // username for connecting to kafka
-	Password   string   `json:"password" yaml:"password"`     // password for connecting to kafka
+	// kafka broker addresses
+	Brokers []string `json:"brokers" yaml:"brokers"`
+
+	// topic name
+	Topic string `json:"topic" yaml:"topic"`
+
+	// consumer group name
+	Group string `json:"group" yaml:"group"`
+
+	// whether to create topic if topic is missing, default false
+	AutoCreateTopic *bool `json:"auto_create_topic" yaml:"auto_create_topic"`
+
+	// the count of the topics to create, default 4
+	Partitions int `json:"topic_partitions" yaml:"topic_partitions"`
+
+	// the replication count of each topic partition, default 3
+	Replications int `json:"replications" yaml:"replications"`
+
+	// the count of workers that consumes synchronously, default is the count of topic partition
+	Processors int `json:"processors" yaml:"processors"`
+
+	// default 10K
+	MinBytes int `json:"min_bytes" yaml:"min_bytes"`
+
+	// default 10M
+	MaxBytes int `json:"max_bytes" yaml:"max_bytes"`
+
+	// certificate file path for connecting to kafka
+	CaFile string `json:"ca_file" yaml:"ca_file"`
+
+	// username for connecting to kafka
+	Username string `json:"username" yaml:"username"`
+
+	// password for connecting to kafka
+	Password string `json:"password" yaml:"password"`
 }
 
 // LoadConfig loads Conf from specified file path
@@ -36,6 +62,33 @@ func LoadConfig(file string) (*Conf, error) {
 		err = yaml.Unmarshal(bytes, &conf)
 	default:
 		err = errors.New("unsupported configuration format")
+	}
+	if err == nil {
+		if len(conf.Brokers) == 0 {
+			return nil, errors.New("brokers must bot be empty")
+		}
+		if strings.TrimSpace(conf.Topic) == "" {
+			return nil, errors.New("topic must not be empty")
+		}
+		if strings.TrimSpace(conf.Group) == "" {
+			return nil, errors.New("group must not be empty")
+		}
+		if conf.AutoCreateTopic == nil {
+			*conf.AutoCreateTopic = false
+		} else if *conf.AutoCreateTopic == true {
+			if conf.Partitions == 0 {
+				conf.Partitions = 4
+			}
+			if conf.Replications == 0 {
+				conf.Replications = 3
+			}
+		}
+		if conf.MinBytes == 0 {
+			conf.MinBytes = 10 * 1 << 10
+		}
+		if conf.MaxBytes == 0 {
+			conf.MaxBytes = 10 * 1 << 20
+		}
 	}
 	return &conf, err
 }

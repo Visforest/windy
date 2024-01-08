@@ -10,6 +10,7 @@ import (
 
 type Producer struct {
 	ctx       context.Context
+	conn      *kafka.Conn
 	writer    *kafka.Writer
 	topic     string
 	idCreator plugins.IdCreator
@@ -36,21 +37,49 @@ func WithProducerListener(listener plugins.ProducerListener) ProducerOption {
 	}
 }
 
-// NewProducer returns a producer
-func NewProducer(cfg *Conf, opts ...ProducerOption) *Producer {
+// NewProducer returns a producer and an error
+func NewProducer(cfg *Conf, opts ...ProducerOption) (*Producer, error) {
+	conn, err := kafka.Dial("tcp", cfg.Brokers[0])
+	if err != nil {
+		return nil, err
+	}
 	writer := &kafka.Writer{
-		Addr:        kafka.TCP(cfg.Brokers...),
-		Topic:       cfg.Topic,
-		Balancer:    &kafka.LeastBytes{},
-		Compression: kafka.Snappy,
+		Addr:                   kafka.TCP(cfg.Brokers...),
+		Topic:                  cfg.Topic,
+		AllowAutoTopicCreation: *cfg.AutoCreateTopic,
+		Balancer:               &kafka.LeastBytes{},
+		Compression:            kafka.Snappy,
+	}
+	if *cfg.AutoCreateTopic {
+		// although writer can create topic if missing, but partitions count and replications count are important for efficiency,
+		// but writer doesn't ensure that
+		err = conn.CreateTopics(kafka.TopicConfig{
+			Topic:             cfg.Topic,
+			NumPartitions:     cfg.Partitions,
+			ReplicationFactor: cfg.Replications,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	producer := &Producer{
+		ctx:       context.Background(),
+		conn:      conn,
 		writer:    writer,
 		topic:     cfg.Topic,
 		idCreator: plugins.NewSnowflakeCreator(1),
 	}
 	for _, opt := range opts {
 		opt(producer)
+	}
+	return producer, nil
+}
+
+// MustNewProducer returns a producer or panic if fails
+func MustNewProducer(cfg *Conf, opts ...ProducerOption) *Producer {
+	producer, err := NewProducer(cfg, opts...)
+	if err != nil {
+		panic(err)
 	}
 	return producer
 }
