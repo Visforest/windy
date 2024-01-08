@@ -30,9 +30,9 @@ func LoadConfig(file string) (*Conf, error) {
 	}
 	ext := strings.ToLower(path.Ext(file))
 	switch ext {
-	case "json":
+	case ".json":
 		err = json.Unmarshal(bytes, &conf)
-	case "yaml", "yml":
+	case ".yaml", ".yml":
 		err = yaml.Unmarshal(bytes, &conf)
 	default:
 		err = errors.New("unsupported configuration format")
