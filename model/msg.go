@@ -1,8 +1,8 @@
 package model
 
 type Msg struct {
-	Id   string
-	Data any
+	Id   string `json:"id"`
+	Data any    `json:"data"`
 }
 
 func NewMsg(data any) *Msg {
