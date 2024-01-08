@@ -1,0 +1,15 @@
+# jetbrains ide files
+.idea/
+*/.idea/
+
+# vscode files
+.vscode/
+*/.vscode/
+
+# mac files
+.DS_Store
+
+*.json
+*.yaml
+*.txt
+*.log
