@@ -1,7 +1,7 @@
 [English](README.md) | 中文
 
 # windy
-一个消息/任务队列异步处理库，目前仅支持 Kafka 作为中间件。
+一个消息/任务队列异步处理库，目前有 Kafka 的 `kq` 和 Redis 的 `rq` 可供选择。
 
 支持：
 1. 消息发送前、发送成功、发送失败时回调自定义的函数。
@@ -17,21 +17,19 @@
 go get github.com/visforest/windy
 ```
 
+下面是 `kq` 的示例，`rq` 的用法与其相同。
+
 Producer:
 ```go
 func main() {
 	cfg := kq.Conf{
 		Brokers: []string{"master:9092", "node1:9092", "node2:9092"},
 		Topic:   "notify.email",
-        Group:   "g.notify.email",
+		Group:   "g.notify.email",
 	}
-	// pass metadata
 	ctx := context.WithValue(context.Background(), "channel", "pc")
-	// initialize a producer
-	// optionally specify your listener and id creator
-	producer := kq.MustNewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&myProduceListener{}), kq.WithIdCreator(&myIdCreator{}))
-    
-	// prepare and send msgs
+	producer := kq.MustNewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&example.MyProduceListener{}), kq.WithIdCreator(&example.MyIdCreator{}))
+
 	receivers := []string{"wind@example.com", "cloud@example.com", "rain@example.com", "snow@example.com", "storm@example.com"}
 	for _, r := range receivers {
 		data := map[string]string{"receiver": r, "content": fmt.Sprintf("Hi, %s!", strings.TrimRight(r, "@example.com"))}
@@ -44,40 +42,21 @@ func main() {
 }
 ```
 
-你可以定义 listener 和 id creator, 详见 [example/producer.go](example/producer.go).
-
 Consumer:
 ```go
-func sendEmail(ctx context.Context, topic string, msg *model.Msg) error {
-	ip := ctx.Value("myip").(string)
-	fmt.Printf("start to send email from ip: %s,topic is %s \n", ip, topic)
-	if data, ok := msg.Data.(map[string]interface{}); ok {
-		receiver, ok := data["receiver"]
-		if !ok {
-			return errors.New("got bad data from queue")
-		}
-		content, ok := data["content"]
-		if !ok {
-			return errors.New("got bad data from queue")
-		}
-		fmt.Printf("send to %s:%s \n", receiver, content)
-		return nil
-	}
-	return errors.New("got bad data from queue")
-}
-
 func main() {
 	cfg := kq.Conf{
-		Brokers: []string{"master:9092", "node1:9092", "node2:9092"},
-		Topic:   "notify.email",
-		Group:   "g.notify.email",
+		Brokers:    []string{"master:9092", "node1:9092", "node2:9092"},
+		Topic:      "notify.email",
+		Group:      "g.notify.email",
+		Processors: 4,
 	}
-	// pass metadata
 	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
-	// initialize a consumer
-	consumer := kq.MustNewConsumer(&cfg, sendEmail, kq.WithConsumerContext(ctx), kq.WithConsumerListener(&myConsumerListener{}))
+	consumer := kq.MustNewConsumer(&cfg, example.SendEmail, kq.WithConsumerContext(ctx), kq.WithConsumerListener(&example.MyConsumerListener{}))
 	// block to consume
 	consumer.LoopConsume()
 }
 ```
-你可以定义 listener, 详见 [example/consumer.go](example/consumer.go).
+
+
+你可以定义生产者、消费者 listener，消息 ID 生成器，以及消息处理函数, 可参考 [example/utils.go](example/utils.go).
