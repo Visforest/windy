@@ -3,7 +3,9 @@ module github.com/visforest/windy
 go 1.21
 
 require (
+	github.com/Visforest/goset v1.1.1
 	github.com/bwmarrin/snowflake v0.3.0
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/redis/go-redis/v9 v9.4.0
 	github.com/segmentio/kafka-go v0.4.47
 	gopkg.in/yaml.v3 v3.0.1
