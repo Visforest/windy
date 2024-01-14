@@ -19,44 +19,198 @@ go get github.com/visforest/windy
 
 下面是 `kq` 的示例，`rq` 的用法与其相同。
 
-Producer:
+
+## Producer
+
+### 常规用法
+
+context，ID 生成器，ProducerListener 可选，可根据需要定制。
+
 ```go
 func main() {
-	cfg := kq.Conf{
-		Brokers: []string{"master:9092", "node1:9092", "node2:9092"},
-		Topic:   "notify.email",
-		Group:   "g.notify.email",
-	}
-	ctx := context.WithValue(context.Background(), "channel", "pc")
-	producer := kq.MustNewProducer(&cfg, kq.WithProducerContext(ctx), kq.WithProducerListener(&example.MyProduceListener{}), kq.WithIdCreator(&example.MyIdCreator{}))
-
-	receivers := []string{"wind@example.com", "cloud@example.com", "rain@example.com", "snow@example.com", "storm@example.com"}
-	for _, r := range receivers {
-		data := map[string]string{"receiver": r, "content": fmt.Sprintf("Hi, %s!", strings.TrimRight(r, "@example.com"))}
-		msgId, err := producer.Send(data)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Printf("send msg %s to %s \n", msgId, r)
-	}
-}
-```
-
-Consumer:
-```go
-func main() {
-	cfg := kq.Conf{
-		Brokers:    []string{"master:9092", "node1:9092", "node2:9092"},
-		Topic:      "notify.email",
-		Group:      "g.notify.email",
+	cfg := windy.RConf{
+		Url:        "redis://127.0.0.1:6379",
+		Topic:      "notify:email",
+		KeyPrefix:  "myapp",
 		Processors: 4,
 	}
 	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
-	consumer := kq.MustNewConsumer(&cfg, example.SendEmail, kq.WithConsumerContext(ctx), kq.WithConsumerListener(&example.MyConsumerListener{}))
+	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
+	fmt.Println("start to consume")
+	// block to consume
+	consumer.LoopConsume()
+}
+```
+## Consumer
+
+### context,listener
+
+context 可以携带元数据，listener 能够在消费前、消费成功时、消费失败时回调，这样就可以记录日志或处理一些逻辑。
+
+```go
+func main() {
+	cfg := windy.RConf{
+		Url:        "redis://127.0.0.1:6379",
+		Topic:      "notify:email",
+		KeyPrefix:  "myapp",
+		Processors: 4,
+	}
+	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
+	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
+	fmt.Println("start to consume")
 	// block to consume
 	consumer.LoopConsume()
 }
 ```
 
+### 压缩并消费
+
+消息可以被压缩。例如发给不同人的相同的邮件，可以被压缩为一个群发邮件。
+
+```go
+// returns msgs grouped by Email.Subject and Email.Content
+func compress(msgs []*core.Msg) []*core.Msg {
+	group := make(map[string]*goset.Set)
+	group2 := make(map[string]*core.Msg)
+	for _, msg := range msgs {
+		var email example.Email
+		if err := core.ParseFromMsg(msg, &email); err != nil {
+			fmt.Printf("%v \n", err)
+			continue
+		}
+		key := fmt.Sprintf("%s_%s", email.Subject, email.Content)
+		if email.Receiver != "" {
+			email.Receivers = append(email.Receivers, email.Receiver)
+		}
+		if _, ok := group[key]; !ok {
+			group[key] = goset.NewSet()
+		}
+		for _, r := range email.Receivers {
+			group[key].Add(r)
+		}
+		if _, ok := group2[key]; !ok {
+			group2[key] = &core.Msg{
+				Id: msg.Id,
+				Data: example.Email{
+					Subject: email.Subject,
+					Content: email.Content,
+				},
+			}
+		}
+	}
+	var result = make([]*core.Msg, 0, len(group))
+	for key, receiverSet := range group {
+		// get receivers
+		receivers := make([]string, 0, receiverSet.Length())
+		for _, r := range receiverSet.ToList() {
+			receivers = append(receivers, r.(string))
+		}
+		// get email
+		msg := group2[key]
+		email := msg.Data.(example.Email)
+		email.Receivers = receivers
+		msg.Data = email
+		result = append(result, msg)
+	}
+	return result
+}
+
+func main() {
+	cfg := windy.RConf{
+		Url:        "redis://127.0.0.1:6379",
+		Topic:      "notify:email",
+		KeyPrefix:  "myapp",
+		Processors: 4,
+		BatchProcessConf: &windy.BatchProcessConf{
+			Batch:   5,
+			Timeout: 30,
+		},
+	}
+	consumer := windy.MustNewRConsumer(&cfg, example.BatchSendEmail, core.WithCompressFunc(compress))
+	consumer.LoopConsume()
+}
+```
+
+### 解压并消费
+
+有时一条消息需要扩展为多条，示例代码：
+```go
+
+// defines the receivers of email should be single
+func decompress(msg *core.Msg) []*core.Msg {
+	var msgs []*core.Msg
+	var email example.Email
+	if err := core.ParseFromMsg(msg, &email); err != nil {
+		panic(err)
+	}
+	if len(email.Receivers) > 0 {
+		// multi receivers
+		msgs = make([]*core.Msg, len(email.Receivers))
+		for i, receiver := range email.Receivers {
+			msgs[i] = core.NewMsg(example.Email{
+				Receiver: receiver,
+				Subject:  email.Subject,
+				Content:  email.Content,
+			})
+		}
+	} else {
+		// single receiver
+		msgs = []*core.Msg{msg}
+	}
+	return msgs
+}
+
+func main() {
+	cfg := windy.RConf{
+		Url:        "redis://127.0.0.1:6379",
+		Topic:      "notify:email",
+		KeyPrefix:  "myapp",
+		Processors: 4,
+		BatchProcessConf: &windy.BatchProcessConf{
+			Batch:   5,
+			Timeout: 30,
+		},
+	}
+	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithDecompressFunc(decompress))
+	consumer.LoopConsume()
+}
+```
+
+### 去重并消费
+
+示例：
+```go
+// defines the combination of receiver and subject must be unique
+func uniq(msg *core.Msg) string {
+	var data example.Email
+	if err := core.ParseFromMsg(msg, &data); err == nil {
+		subject := data.Subject
+		var receiver string
+		if len(data.Receivers) > 0 {
+			receiver = strings.Join(data.Receivers, ";")
+		} else {
+			receiver = data.Receiver
+		}
+		return fmt.Sprintf("%s:%s", receiver, subject)
+	}
+	return ""
+}
+
+func main() {
+	cfg := windy.RConf{
+		Url:        "redis://127.0.0.1:6379",
+		Topic:      "notify:email",
+		KeyPrefix:  "myapp",
+		Processors: 4,
+		BatchProcessConf: &windy.BatchProcessConf{
+			Batch:   5,
+			Timeout: 30,
+		},
+	}
+	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithUniqFunc(uniq))
+	consumer.LoopConsume()
+}
+```
+---
 
 你可以定义生产者、消费者 listener，消息 ID 生成器，以及消息处理函数, 可参考 [example/utils.go](example/utils.go).
