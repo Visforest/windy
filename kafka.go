@@ -6,12 +6,10 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/visforest/windy/core"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -56,11 +54,11 @@ func NewKProducer(cfg *KConf, opts ...core.ProducerOption) (*KProducer, error) {
 	writer := &kafka.Writer{
 		Addr:                   kafka.TCP(cfg.Kafka.Brokers...),
 		Topic:                  cfg.Topic,
-		AllowAutoTopicCreation: *cfg.Kafka.AutoCreateTopic,
+		AllowAutoTopicCreation: cfg.Kafka.AutoCreateTopic,
 		Balancer:               &kafka.LeastBytes{},
 		Compression:            kafka.Snappy,
 	}
-	if *cfg.Kafka.AutoCreateTopic {
+	if cfg.Kafka.AutoCreateTopic {
 		// although writer can create topic if missing, but partitions count and replications count are important for efficiency,
 		// but writer doesn't ensure that
 		err = conn.CreateTopics(kafka.TopicConfig{
@@ -112,21 +110,6 @@ type KConsumer struct {
 
 // NewKConsumer returns a consumer and error
 func NewKConsumer(cfg *KConf, ConsumeFunc core.ConsumeFunc, opts ...core.ConsumerOption) (*KConsumer, error) {
-	if len(cfg.Kafka.Brokers) < 1 {
-		return nil, fmt.Errorf("brokers must not be empty, at least one is required")
-	}
-	if strings.TrimSpace(cfg.Kafka.Group) == "" {
-		return nil, fmt.Errorf("consumer group name must not be empty")
-	}
-	if strings.TrimSpace(cfg.Topic) == "" {
-		return nil, fmt.Errorf("topic must not be empty")
-	}
-	if cfg.Kafka.MinBytes <= 0 {
-		cfg.Kafka.MinBytes = 10 * 1 << 10
-	}
-	if cfg.Kafka.MaxBytes <= 0 {
-		cfg.Kafka.MaxBytes = 10 * 1 << 20
-	}
 	readerConfig := kafka.ReaderConfig{
 		Brokers:     cfg.Kafka.Brokers,
 		GroupID:     cfg.Kafka.Group,
@@ -180,8 +163,8 @@ func NewKConsumer(cfg *KConf, ConsumeFunc core.ConsumeFunc, opts ...core.Consume
 		ConsumeFunc:         ConsumeFunc,
 		Processors:          cfg.Processors,
 		Topic:               cfg.Topic,
-		BatchProcessCnt:     cfg.BatchProcessConf.Batch,
-		BatchProcessTimeout: time.Duration(cfg.BatchProcessConf.Timeout) * time.Second,
+		BatchProcessCnt:     cfg.BatchProcess.Batch,
+		BatchProcessTimeout: time.Duration(cfg.BatchProcess.Timeout) * time.Second,
 	}
 	for _, opt := range opts {
 		opt(consumerCore)

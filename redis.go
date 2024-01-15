@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/visforest/windy/core"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -90,10 +89,6 @@ type RConsumer struct {
 
 // NewRConsumer returns a consumer and error
 func NewRConsumer(cfg *RConf, handler core.ConsumeFunc, opts ...core.ConsumerOption) (*RConsumer, error) {
-	if strings.TrimSpace(cfg.Topic) == "" {
-		return nil, fmt.Errorf("topic must not be empty")
-	}
-
 	redisOpts, err := redis.ParseURL(cfg.Url)
 	if err != nil {
 		return nil, err
@@ -103,8 +98,8 @@ func NewRConsumer(cfg *RConf, handler core.ConsumeFunc, opts ...core.ConsumerOpt
 		Topic:               cfg.Topic,
 		Processors:          cfg.Processors,
 		ConsumeFunc:         handler,
-		BatchProcessCnt:     cfg.BatchProcessConf.Batch,
-		BatchProcessTimeout: time.Duration(cfg.BatchProcessConf.Timeout) * time.Second,
+		BatchProcessCnt:     cfg.BatchProcess.Batch,
+		BatchProcessTimeout: time.Duration(cfg.BatchProcess.Timeout) * time.Second,
 	}
 	for _, opt := range opts {
 		opt(consumerCore)

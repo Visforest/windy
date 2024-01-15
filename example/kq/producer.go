@@ -9,13 +9,8 @@ import (
 )
 
 func main() {
-	cfg := windy.KConf{
-		Kafka: &windy.KafkaConf{
-			Brokers: []string{"master:9092", "node1:9092", "node2:9092"},
-			Group:   "g.notify.email",
-		},
-		Topic: "notify.email",
-	}
+	var cfg windy.KConf
+	windy.MustLoadConfig("config.json", &cfg)
 	ctx := context.WithValue(context.Background(), "channel", "pc")
 	producer := windy.MustNewKProducer(&cfg, core.WithProducerContext(ctx), core.WithProducerListener(&example.MyProduceListener{}), core.WithIdCreator(&example.MyIdCreator{}))
 

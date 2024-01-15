@@ -1,0 +1,15 @@
+{
+  "kafka": {
+    "brokers": [
+      "master:9092",
+      "node1:9092",
+      "node2:9092"
+    ],
+    "group": "g.notify.email"
+  },
+  "topic": "notify.email",
+  "processors": 4
+}
+
+
+

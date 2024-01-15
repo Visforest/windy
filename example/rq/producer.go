@@ -10,12 +10,8 @@ import (
 )
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	ctx := context.WithValue(context.Background(), "channel", "pc")
 	producer := windy.MustNewRProducer(&cfg, core.WithProducerContext(ctx), core.WithProducerListener(&example.MyProduceListener{}))
 
