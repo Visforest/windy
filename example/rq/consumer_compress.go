@@ -56,16 +56,8 @@ func compress(msgs []*core.Msg) []*core.Msg {
 }
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-		BatchProcessConf: &windy.BatchProcessConf{
-			Batch:   5,
-			Timeout: 30,
-		},
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.BatchSendEmail, core.WithCompressFunc(compress))
 	consumer.LoopConsume()
 }

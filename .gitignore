@@ -9,7 +9,5 @@
 # mac files
 .DS_Store
 
-*.json
-*.yaml
 *.txt
 *.log

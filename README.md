@@ -8,9 +8,10 @@ Supports:
 1. call customized hook function before,after sending msg and on failing to send msg. 
 2. customized msg id generator
 3. use Context so that you can pass and use metadata
-4. compress msgs
-5. decompress msgs
-6. deduplicate msgs
+4. json,yaml configuration file
+5. compress msgs
+6. decompress msgs
+7. deduplicate msgs
 
 Other features are coming soon.
 
@@ -30,18 +31,17 @@ Below is the usage of `kq`, and `rq` has the same usage.
 Context with metadata,IdCreator, ProducerListener are all optional.
 
 ```go
-func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
+var cfg windy.RConf
+windy.MustLoadConfig("config.yaml", &cfg)
+ctx := context.WithValue(context.Background(), "channel", "pc")
+producer := windy.MustNewRProducer(&cfg, core.WithProducerContext(ctx), core.WithProducerListener(&example.MyProduceListener{}))
+
+for _, e := range example.Emails {
+	msgId, err := producer.Send(e)
+	if err != nil {
+		panic(err)
 	}
-	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
-	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
-	fmt.Println("start to consume")
-	// block to consume
-	consumer.LoopConsume()
+	fmt.Printf("send msg %s \n", msgId)
 }
 ```
 ## Consumer
@@ -53,19 +53,13 @@ context,listener are optional.
 context could carry metadata, and listener could be monitored before consume,after consume succeed and after consume fails, so that you could record logs or handle something.
 
 ```go
-func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-	}
-	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
-	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
-	fmt.Println("start to consume")
-	// block to consume
-	consumer.LoopConsume()
-}
+var cfg windy.RConf
+windy.MustLoadConfig("config.yaml", &cfg)
+ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
+consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
+fmt.Println("start to consume")
+// block to consume
+consumer.LoopConsume()
 ```
 
 ### compress and consume
@@ -121,16 +115,8 @@ func compress(msgs []*core.Msg) []*core.Msg {
 }
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-		BatchProcessConf: &windy.BatchProcessConf{
-			Batch:   5,
-			Timeout: 30,
-		},
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.BatchSendEmail, core.WithCompressFunc(compress))
 	consumer.LoopConsume()
 }
@@ -166,16 +152,8 @@ func decompress(msg *core.Msg) []*core.Msg {
 }
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-		BatchProcessConf: &windy.BatchProcessConf{
-			Batch:   5,
-			Timeout: 30,
-		},
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithDecompressFunc(decompress))
 	consumer.LoopConsume()
 }
@@ -202,16 +180,8 @@ func uniq(msg *core.Msg) string {
 }
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-		BatchProcessConf: &windy.BatchProcessConf{
-			Batch:   5,
-			Timeout: 30,
-		},
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithUniqFunc(uniq))
 	consumer.LoopConsume()
 }

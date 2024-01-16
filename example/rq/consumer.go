@@ -9,12 +9,8 @@ import (
 )
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
 	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
 	fmt.Println("start to consume")

@@ -7,6 +7,10 @@
 1. 消息发送前、发送成功、发送失败时回调自定义的函数。
 2. 自定义消息 ID 生成器。
 3. 使用 Context，以传递和使用元数据。
+4. json、yaml 格式配置文件
+5. 压缩消息
+6. 解压消息
+7. 消息去重
 
 其他特性后续会增加。
 
@@ -27,18 +31,17 @@ go get github.com/visforest/windy
 context，ID 生成器，ProducerListener 可选，可根据需要定制。
 
 ```go
-func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
+var cfg windy.RConf
+windy.MustLoadConfig("config.yaml", &cfg)
+ctx := context.WithValue(context.Background(), "channel", "pc")
+producer := windy.MustNewRProducer(&cfg, core.WithProducerContext(ctx), core.WithProducerListener(&example.MyProduceListener{}))
+
+for _, e := range example.Emails {
+	msgId, err := producer.Send(e)
+	if err != nil {
+		panic(err)
 	}
-	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
-	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
-	fmt.Println("start to consume")
-	// block to consume
-	consumer.LoopConsume()
+	fmt.Printf("send msg %s \n", msgId)
 }
 ```
 ## Consumer
@@ -48,19 +51,13 @@ func main() {
 context 可以携带元数据，listener 能够在消费前、消费成功时、消费失败时回调，这样就可以记录日志或处理一些逻辑。
 
 ```go
-func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-	}
-	ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
-	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
-	fmt.Println("start to consume")
-	// block to consume
-	consumer.LoopConsume()
-}
+var cfg windy.RConf
+windy.MustLoadConfig("config.yaml", &cfg)
+ctx := context.WithValue(context.Background(), "myip", "10.0.10.1")
+consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithConsumerContext(ctx), core.WithConsumerListener(&example.MyConsumerListener{}))
+fmt.Println("start to consume")
+// block to consume
+consumer.LoopConsume()
 ```
 
 ### 压缩并消费
@@ -116,16 +113,8 @@ func compress(msgs []*core.Msg) []*core.Msg {
 }
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-		BatchProcessConf: &windy.BatchProcessConf{
-			Batch:   5,
-			Timeout: 30,
-		},
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.BatchSendEmail, core.WithCompressFunc(compress))
 	consumer.LoopConsume()
 }
@@ -161,16 +150,8 @@ func decompress(msg *core.Msg) []*core.Msg {
 }
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-		BatchProcessConf: &windy.BatchProcessConf{
-			Batch:   5,
-			Timeout: 30,
-		},
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithDecompressFunc(decompress))
 	consumer.LoopConsume()
 }
@@ -197,16 +178,8 @@ func uniq(msg *core.Msg) string {
 }
 
 func main() {
-	cfg := windy.RConf{
-		Url:        "redis://127.0.0.1:6379",
-		Topic:      "notify:email",
-		KeyPrefix:  "myapp",
-		Processors: 4,
-		BatchProcessConf: &windy.BatchProcessConf{
-			Batch:   5,
-			Timeout: 30,
-		},
-	}
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithUniqFunc(uniq))
 	consumer.LoopConsume()
 }
