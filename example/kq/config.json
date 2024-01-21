@@ -7,8 +7,8 @@
     ],
     "group": "g.notify.email"
   },
-  "topic": "notify.email",
-  "processors": 4
+  "topic": "test",
+  "workers": 4
 }
 
 

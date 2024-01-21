@@ -1,11 +1,13 @@
 package windy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"github.com/Visforest/goset/v2"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/visforest/windy/core"
@@ -34,7 +36,9 @@ func (c *kClient) Fetch() (*core.Msg, error) {
 		return nil, err
 	}
 	var m core.Msg
-	if err = json.Unmarshal(message.Value, &m); err == nil {
+	decoder := json.NewDecoder(bytes.NewReader(message.Value))
+	decoder.UseNumber()
+	if err = decoder.Decode(&m); err == nil {
 		return &m, nil
 	}
 	return nil, err
@@ -79,6 +83,7 @@ func NewKProducer(cfg *KConf, opts ...core.ProducerOption) (*KProducer, error) {
 		opt(producerCore)
 	}
 	client := &kClient{
+		ctx:    producerCore.Ctx,
 		conn:   conn,
 		writer: writer,
 		reader: nil,
@@ -151,20 +156,27 @@ func NewKConsumer(cfg *KConf, ConsumeFunc core.ConsumeFunc, opts ...core.Consume
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Processors <= 0 {
+	if cfg.Workers <= 0 {
 		// set topic partition count or 1 as default consumer count
-		cfg.Processors = len(partitions)
-	} else if cfg.Processors < len(partitions) {
+		cfg.Workers = len(partitions)
+	} else if cfg.Workers < len(partitions) {
 		// warning, it's not the best practice
 	}
 	reader := kafka.NewReader(readerConfig)
+	var batchProcess *BatchProcessConf
+	if cfg.BatchProcess == nil {
+		batchProcess = &BatchProcessConf{}
+	} else {
+		batchProcess = cfg.BatchProcess
+	}
 	consumerCore := &core.ConsumerCore{
 		Ctx:                 context.Background(),
 		ConsumeFunc:         ConsumeFunc,
-		Processors:          cfg.Processors,
+		Processors:          goset.NewSortedSet[core.ProcessorType](),
+		WorkersNum:          cfg.Workers,
 		Topic:               cfg.Topic,
-		BatchProcessCnt:     cfg.BatchProcess.Batch,
-		BatchProcessTimeout: time.Duration(cfg.BatchProcess.Timeout) * time.Second,
+		BatchProcessCnt:     batchProcess.Batch,
+		BatchProcessTimeout: time.Duration(batchProcess.Timeout) * time.Second,
 	}
 	for _, opt := range opts {
 		opt(consumerCore)

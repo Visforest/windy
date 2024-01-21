@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/Visforest/goset"
+	"github.com/Visforest/goset/v2"
 	"github.com/visforest/windy"
 	"github.com/visforest/windy/core"
 	"github.com/visforest/windy/example"
@@ -10,7 +10,7 @@ import (
 
 // returns msgs grouped by Email.Subject and Email.Content
 func compress(msgs []*core.Msg) []*core.Msg {
-	group := make(map[string]*goset.Set)
+	group := make(map[string]*goset.StrSet)
 	group2 := make(map[string]*core.Msg)
 	for _, msg := range msgs {
 		var email example.Email
@@ -23,11 +23,10 @@ func compress(msgs []*core.Msg) []*core.Msg {
 			email.Receivers = append(email.Receivers, email.Receiver)
 		}
 		if _, ok := group[key]; !ok {
-			group[key] = goset.NewSet()
+			group[key] = goset.NewStrSet()
 		}
-		for _, r := range email.Receivers {
-			group[key].Add(r)
-		}
+		group[key].Add(email.Receivers...)
+
 		if _, ok := group2[key]; !ok {
 			group2[key] = &core.Msg{
 				Id: msg.Id,
@@ -43,7 +42,7 @@ func compress(msgs []*core.Msg) []*core.Msg {
 		// get receivers
 		receivers := make([]string, 0, receiverSet.Length())
 		for _, r := range receiverSet.ToList() {
-			receivers = append(receivers, r.(string))
+			receivers = append(receivers, r)
 		}
 		// get email
 		msg := group2[key]

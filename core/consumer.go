@@ -5,8 +5,22 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Visforest/goset/v2"
+)
+
+// ProcessorType is the type of msg processors
+// priority: decompress -> deduplicate -> compress -> filter
+type ProcessorType uint8
+
+const (
+	decompressor ProcessorType = 1
+	deduplicator ProcessorType = 2
+	compressor   ProcessorType = 3
+	filter       ProcessorType = 4
 )
 
 type ConsumeFunc func(ctx context.Context, topic string, msg *Msg) error
@@ -19,6 +33,9 @@ type DecompressFunc func(msg *Msg) []*Msg
 
 // CompressFunc returns compressed msgs
 type CompressFunc func(msgs []*Msg) []*Msg
+
+// FilterFunc returns whether msg is permitted to be consumed. msg will be consumed if it returns true, else skipped.
+type FilterFunc func(msg *Msg) bool
 
 type ConsumerOption func(consumer *ConsumerCore)
 
@@ -37,103 +54,116 @@ func WithConsumerListener(listener ConsumeListener) ConsumerOption {
 func WithUniqFunc(f UniqFunc) ConsumerOption {
 	return func(c *ConsumerCore) {
 		c.uniq = f
+		c.Processors.Add(deduplicator)
 	}
 }
 
 func WithDecompressFunc(f DecompressFunc) ConsumerOption {
 	return func(c *ConsumerCore) {
 		c.decompress = f
+		c.Processors.Add(decompressor)
 	}
 }
 
 func WithCompressFunc(f CompressFunc) ConsumerOption {
 	return func(c *ConsumerCore) {
 		c.compress = f
+		c.Processors.Add(compressor)
+	}
+}
+
+func WithFilterFunc(f FilterFunc) ConsumerOption {
+	return func(c *ConsumerCore) {
+		c.filter = f
+		c.Processors.Add(filter)
 	}
 }
 
 type ConsumerCore struct {
 	Ctx                 context.Context // required
 	Topic               string          // required
-	Processors          int             // required
+	WorkersNum          int             // required
 	ConsumeFunc         ConsumeFunc     // required
 	listener            ConsumeListener // optional
 	BatchProcessCnt     int             // optional
 	BatchProcessTimeout time.Duration   // optional
-	uniq                UniqFunc        // optional
-	decompress          DecompressFunc  // optional
-	compress            CompressFunc    // optional
+
+	// since function is not comparable and cannot be used at goset.FifoSet, use enum instead.
+	// processors records all the msg process function in sequence of priority.
+	Processors *goset.SortedSet[ProcessorType]
+	uniq       UniqFunc       // optional
+	decompress DecompressFunc // optional
+	compress   CompressFunc   // optional
+	filter     FilterFunc     // optional
 }
 
 // fetch msgs in one fetch cycle
 func (c *ConsumerCore) fetchBatchMsgs(consumer consumer, chOut chan<- *Msg) {
-	// set timeout for fetching process
-	ctx, cancel := context.WithTimeout(c.Ctx, c.BatchProcessTimeout)
-	defer cancel()
-
 	finish := false
+	chMsg := make(chan *Msg, 1)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// fetch msgs
 	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Println("fetchBatchMsgs timed out")
-				finish = true
-				return
+		defer wg.Done()
+		for !finish {
+			m, err := consumer.Fetch()
+			if c.listener != nil {
+				c.listener.PrepareConsume(c.Ctx, c.Topic, m, err)
 			}
+			if err != nil {
+				// fail, skip
+				fmt.Println("fetchBatchMsgs err:", err)
+				continue
+			}
+			chMsg <- m
 		}
+		close(chMsg)
 	}()
 
-	chMsg := make(chan *Msg, 1024)
-
-	// fetch messages in multi goroutines
-	for i := 0; i < c.Processors; i++ {
-		go func() {
-			for {
-				m, err := consumer.Fetch()
-				if c.listener != nil {
-					c.listener.PrepareConsume(c.Ctx, c.Topic, m, err)
+	go func() {
+		defer wg.Done()
+		// collect msgs util enough or timed out
+		fetched := 0
+		for fetched < c.BatchProcessCnt {
+			select {
+			case <-time.After(c.BatchProcessTimeout):
+				finish = true
+				return
+			case m, ok := <-chMsg:
+				if !ok {
+					return
 				}
-				if err != nil {
-					// fail, skip
-					continue
-				}
-				chMsg <- m
+				chOut <- m
+				fetched++
 			}
-		}()
-	}
-	fetched := 0
-	for m := range chMsg {
-		chOut <- m
-		fetched++
-		if fetched >= c.BatchProcessCnt || finish {
-			// get enough msgs or fetch timed out, quit
-			break
 		}
-	}
+		finish = true
+	}()
+
+	wg.Wait()
 }
 
 func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
-	if c.uniq != nil || c.compress != nil {
+	if c.Processors.Has(compressor) || c.Processors.Has(deduplicator) {
 		// loop batch fetch msgs in limited count or limited time
 		for {
 			c.fetchBatchMsgs(consumer, chOut)
 		}
 	} else {
-		// fetch messages in multi goroutines
-		for i := 0; i < c.Processors; i++ {
-			go func() {
-				for {
-					m, err := consumer.Fetch()
-					if c.listener != nil {
-						c.listener.PrepareConsume(c.Ctx, c.Topic, m, err)
-					}
-					if err != nil {
-						// fail, skip
-						continue
-					}
-					chOut <- m
-				}
-			}()
+		// loop fetch msgs
+		for {
+			m, err := consumer.Fetch()
+			if c.listener != nil {
+				c.listener.PrepareConsume(c.Ctx, c.Topic, m, err)
+			}
+			if err != nil {
+				// fail, skip
+				continue
+			}
+			chOut <- m
 		}
 	}
 }
@@ -141,19 +171,22 @@ func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 // fetch msgs from chIn,deduplicate,and then sent to chOut
 func (c *ConsumerCore) deduplicateMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 	for {
+		fmt.Println("deduplicateMsg new loop")
 		var msgs = make([]*Msg, 0, c.BatchProcessCnt)
-		for m := range chIn {
-			msgs = append(msgs, m)
-			if len(msgs) == c.BatchProcessCnt {
-				break
+		for len(msgs) < c.BatchProcessCnt {
+			select {
+			case m := <-chIn:
+				msgs = append(msgs, m)
+			case <-time.After(c.BatchProcessTimeout):
+				goto deduplicate
 			}
 		}
-
-		seen := make(map[string]struct{})
+	deduplicate:
+		seen := goset.NewStrSet()
 		for _, m := range msgs {
 			id := c.uniq(m)
-			if _, exists := seen[id]; !exists {
-				seen[id] = struct{}{}
+			if !seen.Has(id) {
+				seen.Add(id)
 				chOut <- m
 			}
 		}
@@ -187,47 +220,50 @@ func (c *ConsumerCore) compressMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 	}
 }
 
+// fetch msgs from chIn, filter and then sent to chOut
+func (c *ConsumerCore) filterMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
+	for msg := range chIn {
+		if c.filter(msg) {
+			chOut <- msg
+		}
+	}
+}
+
 // LoopConsume blocks and consumes msgs in loop with multi goroutine
 func (c *ConsumerCore) LoopConsume(consumer consumer) {
+	fmt.Println("start consume topic:", c.Topic)
 	var s = make(chan os.Signal, 1)
 	signal.Notify(s, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	// fetch msgs
-	chMsg := make(chan *Msg, 1024)
-	go c.fetchMany(consumer, chMsg)
+	chIn := make(chan *Msg, 1024)
+	chOut := make(chan *Msg, 1024)
 
-	// decompress -> deduplicate -> compress
-	chDecompressed := make(chan *Msg, 1024)
-	chDeduplicated := make(chan *Msg, 1024)
-	chCompressed := make(chan *Msg, 1024)
-
-	// decompress
-	if c.decompress == nil {
-		chDecompressed = chMsg
-	} else {
-		go c.decompressMsg(chMsg, chDecompressed)
-	}
-
-	// deduplicate
-	if c.uniq == nil {
-		chDeduplicated = chDecompressed
-	} else {
-		go c.deduplicateMsg(chDecompressed, chDeduplicated)
-	}
-
-	// compress
-	if c.compress == nil {
-		chCompressed = chDeduplicated
-	} else {
-		go c.compressMsg(chDeduplicated, chCompressed)
+	// fetch msgs
+	go c.fetchMany(consumer, chIn)
+	if c.Processors.Length() > 0 {
+		// process msgs
+		for _, pType := range c.Processors.ToList() {
+			switch pType {
+			case decompressor:
+				go c.decompressMsg(chIn, chOut)
+			case deduplicator:
+				go c.deduplicateMsg(chIn, chOut)
+			case compressor:
+				go c.compressMsg(chIn, chOut)
+			case filter:
+				go c.filterMsg(chIn, chOut)
+			}
+		}
 	}
 
 	// consume msgs in multi goroutines
-	for i := 0; i < c.Processors; i++ {
-		go func() {
+	for i := 0; i < c.WorkersNum; i++ {
+		go func(no int) {
 			for {
-				msg := <-chCompressed
+				msg := <-chOut
 				if c.listener == nil {
-					_ = c.ConsumeFunc(c.Ctx, c.Topic, msg)
+					// _ = c.ConsumeFunc(c.Ctx, c.Topic, msg)
+					_ = c.ConsumeFunc(c.Ctx, fmt.Sprintf("%d", no), msg)
 				} else {
 					c.listener.PrepareConsume(c.Ctx, c.Topic, msg, nil)
 					if err := c.ConsumeFunc(c.Ctx, c.Topic, msg); err == nil {
@@ -237,7 +273,7 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 					}
 				}
 			}
-		}()
+		}(i)
 	}
 	// listen on system signal
 	sigVal := <-s

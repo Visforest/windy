@@ -12,6 +12,7 @@ Supports:
 5. compress msgs
 6. decompress msgs
 7. deduplicate msgs
+8. filter msgs
 
 Other features are coming soon.
 
@@ -183,6 +184,41 @@ func main() {
 	var cfg windy.RConf
 	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithUniqFunc(uniq))
+	consumer.LoopConsume()
+}
+```
+
+### filter and consume
+
+Some data, such as data with fields in IP blacklist,user blacklist, or dirty data, or incomplete data, need to be filtered. Only valid data is required.
+
+example codes：
+```go
+func isInBlacklist(receiver string) bool {
+	// your some logic here
+	return false
+}
+
+// filter valid receivers
+func filter(msg *core.Msg) bool {
+	var data example.Email
+	if err := core.ParseFromMsg(msg, &data); err == nil {
+		for _, r := range data.Receivers {
+			if isInBlacklist(r) {
+				return false
+			}
+		}
+		if isInBlacklist(data.Receiver) {
+			return false
+		}
+	}
+	return true
+}
+
+func main() {
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
+	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithFilterFunc(filter))
 	consumer.LoopConsume()
 }
 ```
