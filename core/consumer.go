@@ -13,7 +13,7 @@ import (
 )
 
 // ProcessorType is the type of msg processors
-// priority: decompress -> deduplicate -> compress
+// priority: decompress -> deduplicate -> compress -> filter
 type ProcessorType uint8
 
 const (
@@ -75,6 +75,7 @@ func WithCompressFunc(f CompressFunc) ConsumerOption {
 func WithFilterFunc(f FilterFunc) ConsumerOption {
 	return func(c *ConsumerCore) {
 		c.filter = f
+		c.Processors.Add(filter)
 	}
 }
 
@@ -145,7 +146,7 @@ func (c *ConsumerCore) fetchBatchMsgs(consumer consumer, chOut chan<- *Msg) {
 	wg.Wait()
 }
 
-func (c *ConsumerCore) fetchNormalMsgs(consumer consumer, chOut chan<- *Msg) {
+func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 	if c.Processors.Has(compressor) || c.Processors.Has(deduplicator) {
 		// loop batch fetch msgs in limited count or limited time
 		for {
@@ -261,8 +262,8 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 	chOut := make(chan *Msg, 1024)
 
 	// fetch msgs
-	go c.fetchNormalMsgs(consumer, chIn)
 	go c.fetchDelayMsgs(consumer, chOut)
+	go c.fetchMany(consumer, chIn)
 	if c.Processors.Length() > 0 {
 		// process msgs
 		for _, pType := range c.Processors.ToList() {

@@ -6,13 +6,12 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"os"
-	"time"
-
 	"github.com/Visforest/goset/v2"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/visforest/windy/core"
+	"os"
+	"time"
 )
 
 type kClient struct {
@@ -39,9 +38,7 @@ func (c *kClient) Fetch() (*core.Msg, error) {
 }
 
 func (c *kClient) FetchDelayMsgs() ([]*core.Msg, error) {
-	msgs := make([]*core.Msg, 0)
-	// TODO
-	return msgs, nil
+	panic("not supported")
 }
 
 type KProducer struct {
