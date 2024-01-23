@@ -8,9 +8,10 @@
 2. 自定义消息 ID 生成器。
 3. 使用 Context，以传递和使用元数据。
 4. json、yaml 格式配置文件
-5. 压缩消息
-6. 解压消息
+5. 消息压缩
+6. 消息解压
 7. 消息去重
+8. 消息过滤
 
 其他特性后续会增加。
 
@@ -181,6 +182,41 @@ func main() {
 	var cfg windy.RConf
 	windy.MustLoadConfig("config.yaml", &cfg)
 	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithUniqFunc(uniq))
+	consumer.LoopConsume()
+}
+```
+
+### 过滤并消息
+
+有些消息我们需要过滤掉，如 IP 黑名单、用户黑名单中的数据，脏数据，不完整的数据等等，只处理合法有效的数据。
+
+示例：
+```go
+func isInBlacklist(receiver string) bool {
+	// your some logic here
+	return false
+}
+
+// filter valid receivers
+func filter(msg *core.Msg) bool {
+	var data example.Email
+	if err := core.ParseFromMsg(msg, &data); err == nil {
+		for _, r := range data.Receivers {
+			if isInBlacklist(r) {
+				return false
+			}
+		}
+		if isInBlacklist(data.Receiver) {
+			return false
+		}
+	}
+	return true
+}
+
+func main() {
+	var cfg windy.RConf
+	windy.MustLoadConfig("config.yaml", &cfg)
+	consumer := windy.MustNewRConsumer(&cfg, example.SendEmail, core.WithFilterFunc(filter))
 	consumer.LoopConsume()
 }
 ```

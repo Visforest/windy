@@ -20,6 +20,9 @@ type DecompressFunc func(msg *Msg) []*Msg
 // CompressFunc returns compressed msgs
 type CompressFunc func(msgs []*Msg) []*Msg
 
+// FilterFunc returns whether msg is permitted to be consumed. msg will be consumed if it returns true, else skipped.
+type FilterFunc func(msg *Msg) bool
+
 type ConsumerOption func(consumer *ConsumerCore)
 
 func WithConsumerContext(ctx context.Context) ConsumerOption {
@@ -52,6 +55,12 @@ func WithCompressFunc(f CompressFunc) ConsumerOption {
 	}
 }
 
+func WithFilterFunc(f FilterFunc) ConsumerOption {
+	return func(c *ConsumerCore) {
+		c.filter = f
+	}
+}
+
 type ConsumerCore struct {
 	Ctx                 context.Context // required
 	Topic               string          // required
@@ -63,6 +72,7 @@ type ConsumerCore struct {
 	uniq                UniqFunc        // optional
 	decompress          DecompressFunc  // optional
 	compress            CompressFunc    // optional
+	filter              FilterFunc      // optional
 }
 
 // fetch msgs in one fetch cycle
@@ -187,6 +197,15 @@ func (c *ConsumerCore) compressMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 	}
 }
 
+// fetch msgs from chIn, filter and then sent to chOut
+func (c *ConsumerCore) filterMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
+	for msg := range chIn {
+		if c.filter(msg) {
+			chOut <- msg
+		}
+	}
+}
+
 // LoopConsume blocks and consumes msgs in loop with multi goroutine
 func (c *ConsumerCore) LoopConsume(consumer consumer) {
 	var s = make(chan os.Signal, 1)
@@ -199,6 +218,7 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 	chDecompressed := make(chan *Msg, 1024)
 	chDeduplicated := make(chan *Msg, 1024)
 	chCompressed := make(chan *Msg, 1024)
+	chFiltered := make(chan *Msg, 1024)
 
 	// decompress
 	if c.decompress == nil {
@@ -221,11 +241,18 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 		go c.compressMsg(chDeduplicated, chCompressed)
 	}
 
+	// filter
+	if c.filter == nil {
+		chFiltered = chCompressed
+	} else {
+		go c.filterMsg(chCompressed, chFiltered)
+	}
+
 	// consume msgs in multi goroutines
 	for i := 0; i < c.Processors; i++ {
 		go func() {
 			for {
-				msg := <-chCompressed
+				msg := <-chFiltered
 				if c.listener == nil {
 					_ = c.ConsumeFunc(c.Ctx, c.Topic, msg)
 				} else {
