@@ -141,7 +141,7 @@ func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 			c.fetchBatchMsgs(consumer, chOut)
 		}
 	} else {
-		// loop fetch msg
+		// loop fetch msgs
 		for {
 			m, err := consumer.Fetch()
 			if c.listener != nil {
@@ -149,7 +149,6 @@ func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 			}
 			if err != nil {
 				// fail, skip
-				fmt.Println("fetchMany err:", err)
 				continue
 			}
 			chOut <- m
@@ -160,7 +159,7 @@ func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 // fetch msgs from chIn,deduplicate,and then sent to chOut
 func (c *ConsumerCore) deduplicateMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 	for {
-		fmt.Println("new loop deduplicateMsg")
+		fmt.Println("deduplicateMsg new loop")
 		var msgs = make([]*Msg, 0, c.BatchProcessCnt)
 		for len(msgs) < c.BatchProcessCnt {
 			select {
@@ -211,7 +210,7 @@ func (c *ConsumerCore) compressMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 
 // LoopConsume blocks and consumes msgs in loop with multi goroutine
 func (c *ConsumerCore) LoopConsume(consumer consumer) {
-	fmt.Println("start consume")
+	fmt.Println("start consume topic:", c.Topic)
 	var s = make(chan os.Signal, 1)
 	signal.Notify(s, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	// fetch msgs
@@ -250,7 +249,6 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 						c.listener.OnConsumeSucceed(c.Ctx, c.Topic, msg)
 					} else {
 						c.listener.OnConsumeFail(c.Ctx, c.Topic, msg, err)
-						panic(err)
 					}
 				}
 			}
