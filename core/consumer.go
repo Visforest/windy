@@ -88,7 +88,7 @@ type ConsumerCore struct {
 // fetch msgs in one fetch cycle
 func (c *ConsumerCore) fetchBatchMsgs(consumer consumer, chOut chan<- *Msg) {
 	finish := false
-	chMsg := make(chan *Msg)
+	chMsg := make(chan *Msg, 1)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -106,13 +106,6 @@ func (c *ConsumerCore) fetchBatchMsgs(consumer consumer, chOut chan<- *Msg) {
 				fmt.Println("fetchBatchMsgs err:", err)
 				continue
 			}
-			var number int
-			if err = ParseFromMsg(m, &number); err != nil {
-				panic(err)
-			}
-			if number == 9970 {
-				print("sss")
-			}
 			chMsg <- m
 		}
 		close(chMsg)
@@ -122,24 +115,23 @@ func (c *ConsumerCore) fetchBatchMsgs(consumer consumer, chOut chan<- *Msg) {
 		defer wg.Done()
 		// collect msgs util enough or timed out
 		fetched := 0
-		for {
+		for fetched < c.BatchProcessCnt {
 			select {
 			case <-time.After(c.BatchProcessTimeout):
 				finish = true
 				return
 			case m, ok := <-chMsg:
-				if !ok || fetched >= c.BatchProcessCnt {
-					finish = true
+				if !ok {
 					return
 				}
 				chOut <- m
 				fetched++
 			}
 		}
+		finish = true
 	}()
 
 	wg.Wait()
-	fmt.Println("wait finish")
 }
 
 func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
@@ -168,14 +160,17 @@ func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 // fetch msgs from chIn,deduplicate,and then sent to chOut
 func (c *ConsumerCore) deduplicateMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 	for {
+		fmt.Println("new loop deduplicateMsg")
 		var msgs = make([]*Msg, 0, c.BatchProcessCnt)
-		for m := range chIn {
-			msgs = append(msgs, m)
-			if len(msgs) == c.BatchProcessCnt {
-				break
+		for len(msgs) < c.BatchProcessCnt {
+			select {
+			case m := <-chIn:
+				msgs = append(msgs, m)
+			case <-time.After(c.BatchProcessTimeout):
+				goto deduplicate
 			}
 		}
-
+	deduplicate:
 		seen := goset.NewStrSet()
 		for _, m := range msgs {
 			id := c.uniq(m)
