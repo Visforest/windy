@@ -20,6 +20,7 @@ const (
 	decompressor ProcessorType = 1
 	deduplicator ProcessorType = 2
 	compressor   ProcessorType = 3
+	filter       ProcessorType = 4
 )
 
 type ConsumeFunc func(ctx context.Context, topic string, msg *Msg) error
@@ -32,6 +33,9 @@ type DecompressFunc func(msg *Msg) []*Msg
 
 // CompressFunc returns compressed msgs
 type CompressFunc func(msgs []*Msg) []*Msg
+
+// FilterFunc returns whether msg is permitted to be consumed. msg will be consumed if it returns true, else skipped.
+type FilterFunc func(msg *Msg) bool
 
 type ConsumerOption func(consumer *ConsumerCore)
 
@@ -68,6 +72,12 @@ func WithCompressFunc(f CompressFunc) ConsumerOption {
 	}
 }
 
+func WithFilterFunc(f FilterFunc) ConsumerOption {
+	return func(c *ConsumerCore) {
+		c.filter = f
+	}
+}
+
 type ConsumerCore struct {
 	Ctx                 context.Context // required
 	Topic               string          // required
@@ -83,6 +93,7 @@ type ConsumerCore struct {
 	uniq       UniqFunc       // optional
 	decompress DecompressFunc // optional
 	compress   CompressFunc   // optional
+	filter     FilterFunc     // optional
 }
 
 // fetch msgs in one fetch cycle
@@ -208,6 +219,15 @@ func (c *ConsumerCore) compressMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 	}
 }
 
+// fetch msgs from chIn, filter and then sent to chOut
+func (c *ConsumerCore) filterMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
+	for msg := range chIn {
+		if c.filter(msg) {
+			chOut <- msg
+		}
+	}
+}
+
 // LoopConsume blocks and consumes msgs in loop with multi goroutine
 func (c *ConsumerCore) LoopConsume(consumer consumer) {
 	fmt.Println("start consume topic:", c.Topic)
@@ -229,6 +249,8 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 				go c.deduplicateMsg(chIn, chOut)
 			case compressor:
 				go c.compressMsg(chIn, chOut)
+			case filter:
+				go c.filterMsg(chIn, chOut)
 			}
 		}
 	} else {
