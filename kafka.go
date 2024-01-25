@@ -1,18 +1,18 @@
 package windy
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"os"
+	"time"
+
 	"github.com/Visforest/goset/v2"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/visforest/windy/core"
-	"os"
-	"time"
 )
 
 type kClient struct {
@@ -35,13 +35,13 @@ func (c *kClient) Fetch() (*core.Msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	var m core.Msg
-	decoder := json.NewDecoder(bytes.NewReader(message.Value))
-	decoder.UseNumber()
-	if err = decoder.Decode(&m); err == nil {
-		return &m, nil
-	}
-	return nil, err
+	return core.DecodeMsgFromBytes(message.Value)
+}
+
+func (c *kClient) FetchDelayMsgs() ([]*core.Msg, error) {
+	msgs := make([]*core.Msg, 0)
+	// TODO
+	return msgs, nil
 }
 
 type KProducer struct {
@@ -104,8 +104,8 @@ func MustNewKProducer(cfg *KConf, opts ...core.ProducerOption) *KProducer {
 }
 
 // Send sends data to message queue
-func (p *KProducer) Send(data any) (string, error) {
-	return p.producerCore.Send(p.client, core.NewMsg(data))
+func (p *KProducer) Send(data any, opts ...core.MsgOption) (string, error) {
+	return p.producerCore.Send(p.client, core.NewMsg(data, opts...))
 }
 
 type KConsumer struct {

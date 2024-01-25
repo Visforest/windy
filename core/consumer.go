@@ -145,7 +145,7 @@ func (c *ConsumerCore) fetchBatchMsgs(consumer consumer, chOut chan<- *Msg) {
 	wg.Wait()
 }
 
-func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
+func (c *ConsumerCore) fetchNormalMsgs(consumer consumer, chOut chan<- *Msg) {
 	if c.Processors.Has(compressor) || c.Processors.Has(deduplicator) {
 		// loop batch fetch msgs in limited count or limited time
 		for {
@@ -163,6 +163,29 @@ func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 				continue
 			}
 			chOut <- m
+		}
+	}
+}
+
+// fetch delay msgs that are ready to process
+func (c *ConsumerCore) fetchDelayMsgs(consumer consumer, chOut chan<- *Msg) {
+	ticker := time.NewTicker(time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			msgs, err := consumer.FetchDelayMsgs()
+			if c.listener != nil {
+				for _, m := range msgs {
+					c.listener.PrepareConsume(c.Ctx, c.Topic, m, err)
+				}
+			}
+			if err != nil {
+				// fail, skip
+				continue
+			}
+			for _, m := range msgs {
+				chOut <- m
+			}
 		}
 	}
 }
@@ -238,7 +261,8 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 	chOut := make(chan *Msg, 1024)
 
 	// fetch msgs
-	go c.fetchMany(consumer, chIn)
+	go c.fetchNormalMsgs(consumer, chIn)
+	go c.fetchDelayMsgs(consumer, chOut)
 	if c.Processors.Length() > 0 {
 		// process msgs
 		for _, pType := range c.Processors.ToList() {
@@ -283,4 +307,5 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 
 type consumer interface {
 	Fetch() (*Msg, error)
+	FetchDelayMsgs() ([]*Msg, error)
 }

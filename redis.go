@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Visforest/goset/v2"
@@ -13,12 +12,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var (
+	scriptFetchDelayMsgs = redis.NewScript(`return redis.call('zrange', KEYS[1], 0, ARGV[1], 'with score')`)
+)
+
 // rClient is a client backed by redis, which implements core.Producer and core.Consumer
 type rClient struct {
-	ctx      context.Context
-	rds      *redis.Client
-	prefix   string
-	queueKey string
+	ctx           context.Context
+	rds           *redis.Client
+	prefix        string
+	queueKey      string
+	delayQueueKey string
 }
 
 func (c *rClient) Push(m *core.Msg) error {
@@ -26,7 +30,17 @@ func (c *rClient) Push(m *core.Msg) error {
 	if err != nil {
 		return err
 	}
-	return c.rds.LPush(c.ctx, c.queueKey, string(val)).Err()
+	if m.DelayAt != nil {
+		// delay msg
+		err = c.rds.ZAdd(c.ctx, c.delayQueueKey, redis.Z{
+			Score:  float64(m.DelayAt.Unix()),
+			Member: string(val),
+		}).Err()
+	} else {
+		// normal msg
+		err = c.rds.LPush(c.ctx, c.queueKey, string(val)).Err()
+	}
+	return err
 }
 
 func (c *rClient) Fetch() (*core.Msg, error) {
@@ -34,13 +48,24 @@ func (c *rClient) Fetch() (*core.Msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	var m core.Msg
-	decoder := json.NewDecoder(strings.NewReader(vals[1]))
-	decoder.UseNumber()
-	if err = decoder.Decode(&m); err == nil {
-		return &m, nil
+	return core.DecodeMsgFromStr(vals[1])
+}
+
+func (c *rClient) FetchDelayMsgs() ([]*core.Msg, error) {
+	r, err := scriptFetchDelayMsgs.Eval(c.ctx, c.rds, []string{c.delayQueueKey}, []int64{time.Now().Unix()}).Result()
+	if err != nil {
+		return nil, err
 	}
-	return nil, err
+	resultMsgStrs := r.([]string)
+	msgs := make([]*core.Msg, len(resultMsgStrs))
+	for i, msgStr := range resultMsgStrs {
+		m, err := core.DecodeMsgFromStr(msgStr)
+		if err != nil {
+			return nil, err
+		}
+		msgs[i] = m
+	}
+	return msgs, nil
 }
 
 type RProducer struct {
@@ -63,10 +88,11 @@ func NewRProducer(cfg *RConf, opts ...core.ProducerOption) (*RProducer, error) {
 		opt(producerCore)
 	}
 	client := &rClient{
-		ctx:      producerCore.Ctx,
-		rds:      redis.NewClient(redisOpts),
-		prefix:   cfg.KeyPrefix,
-		queueKey: fmt.Sprintf("%s:queue:%s", cfg.KeyPrefix, cfg.Topic),
+		ctx:           producerCore.Ctx,
+		rds:           redis.NewClient(redisOpts),
+		prefix:        cfg.KeyPrefix,
+		queueKey:      fmt.Sprintf("%s:queue:%s", cfg.KeyPrefix, cfg.Topic),
+		delayQueueKey: fmt.Sprintf("%s:delayqueue:%s", cfg.KeyPrefix, cfg.Topic),
 	}
 	return &RProducer{
 		producerCore: producerCore,
@@ -83,8 +109,8 @@ func MustNewRProducer(cfg *RConf, opts ...core.ProducerOption) *RProducer {
 	return producer
 }
 
-func (p *RProducer) Send(data any) (string, error) {
-	return p.producerCore.Send(p.client, core.NewMsg(data))
+func (p *RProducer) Send(data any, opts ...core.MsgOption) (string, error) {
+	return p.producerCore.Send(p.client, core.NewMsg(data, opts...))
 }
 
 type RConsumer struct {
@@ -117,10 +143,11 @@ func NewRConsumer(cfg *RConf, handler core.ConsumeFunc, opts ...core.ConsumerOpt
 		opt(consumerCore)
 	}
 	client := &rClient{
-		ctx:      consumerCore.Ctx,
-		rds:      redis.NewClient(redisOpts),
-		prefix:   cfg.KeyPrefix,
-		queueKey: fmt.Sprintf("%s:queue:%s", cfg.KeyPrefix, cfg.Topic),
+		ctx:           consumerCore.Ctx,
+		rds:           redis.NewClient(redisOpts),
+		prefix:        cfg.KeyPrefix,
+		queueKey:      fmt.Sprintf("%s:queue:%s", cfg.KeyPrefix, cfg.Topic),
+		delayQueueKey: fmt.Sprintf("%s:delayqueue:%s", cfg.KeyPrefix, cfg.Topic),
 	}
 
 	return &RConsumer{
