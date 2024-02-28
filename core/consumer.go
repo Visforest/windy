@@ -168,6 +168,29 @@ func (c *ConsumerCore) fetchMany(consumer consumer, chOut chan<- *Msg) {
 	}
 }
 
+// fetch delay msgs that are ready to process
+func (c *ConsumerCore) fetchDelayMsgs(consumer consumer, chOut chan<- *Msg) {
+	ticker := time.NewTicker(time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			msgs, err := consumer.FetchDelayMsgs()
+			if c.listener != nil {
+				for _, m := range msgs {
+					c.listener.PrepareConsume(c.Ctx, c.Topic, m, err)
+				}
+			}
+			if err != nil {
+				// fail, skip
+				continue
+			}
+			for _, m := range msgs {
+				chOut <- m
+			}
+		}
+	}
+}
+
 // fetch msgs from chIn,deduplicate,and then sent to chOut
 func (c *ConsumerCore) deduplicateMsg(chIn <-chan *Msg, chOut chan<- *Msg) {
 	for {
@@ -239,6 +262,7 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 	chOut := make(chan *Msg, 1024)
 
 	// fetch msgs
+	go c.fetchDelayMsgs(consumer, chOut)
 	go c.fetchMany(consumer, chIn)
 	if c.Processors.Length() > 0 {
 		// process msgs
@@ -254,6 +278,8 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 				go c.filterMsg(chIn, chOut)
 			}
 		}
+	} else {
+		chOut = chIn
 	}
 
 	// consume msgs in multi goroutines
@@ -282,4 +308,5 @@ func (c *ConsumerCore) LoopConsume(consumer consumer) {
 
 type consumer interface {
 	Fetch() (*Msg, error)
+	FetchDelayMsgs() ([]*Msg, error)
 }

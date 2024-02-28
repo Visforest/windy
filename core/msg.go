@@ -1,18 +1,50 @@
 package core
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/mitchellh/mapstructure"
 	"reflect"
+	"strings"
+	"time"
 )
 
 type Msg struct {
-	Id   string `json:"id"`
-	Data any    `json:"data"`
+	Id       string     `json:"id"`                  // msg uniq id
+	DelayAt  *time.Time `json:"delay_at,omitempty"`  // the time at which the msg will be processed at, it must be later than now
+	ExpireAt *time.Time `json:"expire_at,omitempty"` // the time at which the msg will expire
+	Data     any        `json:"data"`                // data that will be transferred
 }
 
-func NewMsg(data any) *Msg {
-	return &Msg{Data: data}
+type MsgOption func(m *Msg)
+
+func WithDelayTime(delayAt *time.Time) MsgOption {
+	return func(m *Msg) {
+		if !delayAt.After(time.Now()) {
+			panic("delay time must be later than now")
+		}
+		m.DelayAt = delayAt
+	}
+}
+
+func WithExpireTime(expireAt *time.Time) MsgOption {
+	return func(m *Msg) {
+		if m.DelayAt != nil && !expireAt.After(*m.DelayAt) {
+			panic("expire time must be later than delay time")
+		}
+		if !expireAt.After(time.Now()) {
+			panic("delay time must be later than now")
+		}
+	}
+}
+
+func NewMsg(data any, opts ...MsgOption) *Msg {
+	msg := &Msg{Data: data}
+	for _, opt := range opts {
+		opt(msg)
+	}
+	return msg
 }
 
 // ParseFromMsg decodes m.Data into s, and s must be a pointer
@@ -42,4 +74,20 @@ func ParseFromMsg(m *Msg, s interface{}) error {
 		}
 		return decoder.Decode(data)
 	}
+}
+
+func DecodeMsgFromBytes(data []byte) (*Msg, error) {
+	var m Msg
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	err := decoder.Decode(&m)
+	return &m, err
+}
+
+func DecodeMsgFromStr(data string) (*Msg, error) {
+	var m Msg
+	decoder := json.NewDecoder(strings.NewReader(data))
+	decoder.UseNumber()
+	err := decoder.Decode(&m)
+	return &m, err
 }

@@ -31,6 +31,7 @@ type ProducerCore struct {
 	listener  ProducerListener
 }
 
+// Send sends normal msg
 func (p *ProducerCore) Send(producer Producer, m *Msg) (string, error) {
 	// generate msg id
 	m.Id = p.IdCreator.Create()

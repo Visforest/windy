@@ -1,6 +1,8 @@
 
 English | [中文](README_ZH.md)
 
+[NOTE] This project may be reconstructed in the future for better performances and features.
+
 # windy
 A Go library for queueing message/task and processing them asynchronously. `kq` based on Kafka and `rq` based on Redis are supplied for now.
 
@@ -13,6 +15,7 @@ Supports:
 6. decompress msgs
 7. deduplicate msgs
 8. filter msgs
+9. delay msgs
 
 Other features are coming soon.
 
