@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/visforest/windy/core"
+	"strings"
 	"time"
+
+	"github.com/Visforest/goset/v2"
+	"github.com/visforest/windy/core"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -32,7 +35,9 @@ func (c *rClient) Fetch() (*core.Msg, error) {
 		return nil, err
 	}
 	var m core.Msg
-	if err = json.Unmarshal([]byte(vals[1]), &m); err == nil {
+	decoder := json.NewDecoder(strings.NewReader(vals[1]))
+	decoder.UseNumber()
+	if err = decoder.Decode(&m); err == nil {
 		return &m, nil
 	}
 	return nil, err
@@ -93,13 +98,20 @@ func NewRConsumer(cfg *RConf, handler core.ConsumeFunc, opts ...core.ConsumerOpt
 	if err != nil {
 		return nil, err
 	}
+	var batchProcess *BatchProcessConf
+	if cfg.BatchProcess == nil {
+		batchProcess = &BatchProcessConf{}
+	} else {
+		batchProcess = cfg.BatchProcess
+	}
 	consumerCore := &core.ConsumerCore{
 		Ctx:                 context.Background(),
 		Topic:               cfg.Topic,
-		Processors:          cfg.Processors,
+		WorkersNum:          cfg.Workers,
+		Processors:          goset.NewSortedSet[core.ProcessorType](),
 		ConsumeFunc:         handler,
-		BatchProcessCnt:     cfg.BatchProcess.Batch,
-		BatchProcessTimeout: time.Duration(cfg.BatchProcess.Timeout) * time.Second,
+		BatchProcessCnt:     batchProcess.Batch,
+		BatchProcessTimeout: time.Duration(batchProcess.Timeout) * time.Second,
 	}
 	for _, opt := range opts {
 		opt(consumerCore)

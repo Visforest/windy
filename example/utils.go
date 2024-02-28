@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/visforest/windy/core"
 	"math/rand"
+	"os"
 	"strings"
+	"sync"
+
+	"github.com/visforest/windy/core"
 )
 
 type Email struct {
@@ -56,18 +59,18 @@ func (l *MyProduceListener) PrepareSend(ctx context.Context, topic string, msg *
 		fmt.Printf("get err before msg is sent:%s \n", err.Error())
 		return
 	}
-	channel := ctx.Value("channel").(string)
-	fmt.Printf("prepare to send msg %s to %s,channel: %s\n", msg.Id, topic, channel)
+	// channel := ctx.Value("channel").(string)
+	// fmt.Printf("prepare to send msg %s to %s,channel: %s\n", msg.Id, topic, channel)
 }
 
 func (l *MyProduceListener) OnSendSucceed(ctx context.Context, topic string, msg *core.Msg) {
-	channel := ctx.Value("channel").(string)
-	fmt.Printf("sent msg %s to %s,channel: %s \n", msg.Id, topic, channel)
+	// channel := ctx.Value("channel").(string)
+	// fmt.Printf("sent msg %s to %s,channel: %s \n", msg.Id, topic, channel)
 }
 
 func (l *MyProduceListener) OnSendFail(ctx context.Context, topic string, msg *core.Msg, err error) {
-	channel := ctx.Value("channel").(string)
-	fmt.Printf("failed to send msg %s to %s, %s,channel: %s \n", msg.Id, topic, err.Error(), channel)
+	// channel := ctx.Value("channel").(string)
+	// fmt.Printf("failed to send msg %s to %s, %s,channel: %s \n", msg.Id, topic, err.Error(), channel)
 }
 
 type MyConsumerListener struct{}
@@ -101,6 +104,27 @@ func (c *MyIdCreator) Create() string {
 		b[i] = charset[rand.Intn(len(charset))]
 	}
 	return string(b)
+}
+
+func Print(ctx context.Context, topic string, msg *core.Msg) error {
+	var l sync.Mutex
+	defer l.Unlock()
+	l.Lock()
+	var num int
+	if err := core.ParseFromMsg(msg, &num); err != nil {
+		panic(err)
+		// return err
+	}
+	var s = fmt.Sprintf("%s,got %d\n", topic, num)
+	fmt.Print(s)
+	f, err := os.OpenFile("test.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		panic(err)
+		// return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(s)
+	return err
 }
 
 func SendEmail(ctx context.Context, topic string, msg *core.Msg) error {

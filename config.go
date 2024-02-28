@@ -59,7 +59,7 @@ type KConf struct {
 	Topic string `json:"topic" yaml:"topic" validate:"required=true"`
 
 	// the count of workers that consumes synchronously, default is the count of topic partition
-	Processors int `json:"processors" yaml:"processors" validate:"min=1"`
+	Workers int `json:"workers" yaml:"workers" validate:"min=1"`
 
 	// kafka configuration
 	Kafka *KafkaConf `json:"kafka" yaml:"kafka" validate:"required=true"`
@@ -78,7 +78,7 @@ type RConf struct {
 	Topic string `json:"topic" yaml:"topic" validate:"required=true"`
 
 	// the count of workers that consumes synchronously,default 4
-	Processors int `json:"processors" yaml:"processors" validate:"default=4"`
+	Workers int `json:"workers" yaml:"workers" validate:"default=4"`
 
 	// the prefix of redis keys used,default 'windy'
 	KeyPrefix string `json:"key_prefix" yaml:"key_prefix" validate:"default=windy"`
@@ -158,7 +158,7 @@ func validate(conf any) error {
 					}
 					if required {
 						// field value is required, but not set
-						return fmt.Errorf("filed '%s' must not be empty or zero value", field.Name)
+						return fmt.Errorf("field '%s' must not be empty or zero value", field.Name)
 					}
 				}
 			}

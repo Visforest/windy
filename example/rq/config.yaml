@@ -2,5 +2,5 @@ url: redis://127.0.0.1:6379
 topic: notify:email
 key_prefix: myapp
 batch_process:
-  batch: 10
-  timeout: 15
+  batch: 100
+  timeout: 5
